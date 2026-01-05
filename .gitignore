@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Taichi
+ti_cache/
+*.ticache
+
+# Output files
+output/
+*.vtk
+*.csv
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Unity specific (if Unity project is added)
+unity_client/[Ll]ibrary/
+unity_client/[Tt]emp/
+unity_client/[Oo]bj/
+unity_client/[Bb]uild/
+unity_client/[Bb]uilds/
+unity_client/Assets/AssetStoreTools*
+*.pidb
+*.unityproj
+*.sln
+*.userprefs
+
+# imgui config
+imgui.ini
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
