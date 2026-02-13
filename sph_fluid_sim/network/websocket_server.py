@@ -199,10 +199,22 @@ class SimulationDataServer:
             else:
                 message = self._encode_json(indices)
 
-            # Broadcast to all clients
+            # Broadcast to all clients - use asyncio.gather for proper async handling
             if self.clients:  # Check again in case clients disconnected
                 print(f"[Broadcast] Sending {len(message)} bytes to {len(self.clients)} client(s)")
-                websockets.broadcast(self.clients, message)
+
+                # Create send tasks for all clients
+                send_tasks = []
+                for client in self.clients:
+                    try:
+                        send_tasks.append(client.send(message))
+                    except Exception as e:
+                        print(f"[Broadcast] Error queueing send to client: {e}")
+
+                # Send to all clients concurrently
+                if send_tasks:
+                    await asyncio.gather(*send_tasks, return_exceptions=True)
+
         except Exception as e:
             print(f"[ERROR] Broadcast failed: {e}")
             import traceback
