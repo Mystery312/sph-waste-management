@@ -57,3 +57,4 @@ python test_all_phases.py
 - `taichi>=1.6.0` — GPU compute framework (kernels, fields, GGUI)
 - `numpy>=1.24.0` — Data transfer between Taichi and Python
 - `websockets>=11.0` — Phase 3 streaming server
+/
