@@ -66,13 +66,12 @@ class SimulationDataServer:
         print(f"[WebSocket] Client disconnected from {websocket.remote_address}")
         print(f"[WebSocket] Total clients: {len(self.clients)}")
 
-    async def handler(self, websocket: websockets.WebSocketServerProtocol, path: str):
+    async def handler(self, websocket: websockets.WebSocketServerProtocol):
         """
         Handle client connections and messages.
 
         Args:
             websocket: WebSocket connection
-            path: Connection path
         """
         await self.register(websocket)
         try:
@@ -173,25 +172,41 @@ class SimulationDataServer:
             'metrics': metrics or {}
         }
 
+        # Debug logging for first data update
+        if step % 50 == 0:
+            print(f"[WebSocket] Updated data: step={step}, time={time:.3f}s, particles={len(positions)}")
+
     async def broadcast_data(self):
         """
         Broadcast current simulation data to all connected clients.
         This should be called periodically from the simulation loop.
         """
-        if not self.clients:
-            return
+        try:
+            if not self.clients:
+                #print(f"[Broadcast] No clients connected")
+                return
 
-        # Apply decimation
-        indices = np.arange(0, len(self.current_data['positions']), self.decimation_factor)
+            # Check if current_data is initialized
+            if self.current_data['positions'] is None:
+                print(f"[Broadcast] No position data yet")
+                return
 
-        if self.binary_mode:
-            message = self._encode_binary(indices)
-        else:
-            message = self._encode_json(indices)
+            # Apply decimation
+            indices = np.arange(0, len(self.current_data['positions']), self.decimation_factor)
 
-        # Broadcast to all clients
-        if self.clients:  # Check again in case clients disconnected
-            websockets.broadcast(self.clients, message)
+            if self.binary_mode:
+                message = self._encode_binary(indices)
+            else:
+                message = self._encode_json(indices)
+
+            # Broadcast to all clients
+            if self.clients:  # Check again in case clients disconnected
+                print(f"[Broadcast] Sending {len(message)} bytes to {len(self.clients)} client(s)")
+                websockets.broadcast(self.clients, message)
+        except Exception as e:
+            print(f"[ERROR] Broadcast failed: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _encode_json(self, indices: np.ndarray) -> str:
         """
@@ -282,12 +297,266 @@ class SimulationDataServer:
     async def start_server(self):
         """Start the WebSocket server."""
         print(f"[WebSocket] Starting server on {self.host}:{self.port}")
-        async with websockets.serve(self.handler, self.host, self.port):
-            self.running = True
-            print(f"[WebSocket] Server running - waiting for connections...")
-            await asyncio.Future()  # Run forever
+        try:
+            # Try with reuse_port if available (for faster rebinding)
+            async with websockets.serve(self.handler, self.host, self.port, reuse_port=True):
+                self.running = True
+                print(f"[WebSocket] Server running - waiting for connections...")
+                await asyncio.Future()  # Run forever
+        except TypeError:
+            # Older websockets version doesn't support reuse_port
+            async with websockets.serve(self.handler, self.host, self.port):
+                self.running = True
+                print(f"[WebSocket] Server running - waiting for connections...")
+                await asyncio.Future()  # Run forever
 
     def stop_server(self):
         """Stop the WebSocket server."""
         self.running = False
         print("[WebSocket] Server stopped")
+
+
+class MinecraftDataServer(SimulationDataServer):
+    """
+    WebSocket server optimized for Minecraft client streaming.
+
+    Extends SimulationDataServer with Minecraft-specific data formats and features:
+    - Extended JSON format with gradients, integrals, and metadata
+    - Pre-computed volume integral results for preset regions
+    - Camera positioning suggestions
+    - Voxel grid bounds and density information
+    """
+
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 8765,
+        solver=None,
+        concentration_tracker=None
+    ):
+        """
+        Initialize Minecraft-optimized WebSocket server.
+
+        Args:
+            host: Server host address
+            port: Server port number
+            solver: WCSPHSolver instance (for gradient computation)
+            concentration_tracker: ConcentrationTracker instance
+        """
+        super().__init__(host=host, port=port)
+        self.solver = solver
+        self.concentration_tracker = concentration_tracker
+
+        # Minecraft-specific configuration
+        self.voxel_resolution = 20  # 20×20×20 grid for 1m³ domain
+        self.voxel_size = 1.0 / self.voxel_resolution  # Size of each voxel in meters
+
+        # Preset regions for volume integrals (bounds in simulation space: 0-1)
+        self.preset_regions = {
+            'top_half': {
+                'bounds': [[0, 0.5, 0], [1, 1, 1]],
+                'name': 'Top Half',
+                'description': 'Upper half of simulation domain'
+            },
+            'bottom_half': {
+                'bounds': [[0, 0, 0], [1, 0.5, 1]],
+                'name': 'Bottom Half',
+                'description': 'Lower half of simulation domain'
+            },
+            'high_contamination': {
+                'bounds': [[0.25, 0.25, 0.25], [0.75, 0.75, 0.75]],
+                'name': 'High Contamination Zone',
+                'description': 'Central region of domain'
+            }
+        }
+
+        # Camera presets (in Minecraft coordinates: 0-20 blocks)
+        self.camera_presets = {
+            'overview': {
+                'position': [10, 12, 10],
+                'look_at': [10, 10, 10],
+                'fov': 70
+            },
+            'close_up': {
+                'position': [12, 10, 12],
+                'look_at': [10, 10, 10],
+                'fov': 45
+            },
+            'side': {
+                'position': [20, 10, 10],
+                'look_at': [10, 10, 10],
+                'fov': 60
+            },
+            'top_down': {
+                'position': [10, 20, 10],
+                'look_at': [10, 10, 10],
+                'fov': 60
+            }
+        }
+
+    def update_simulation_data(
+        self,
+        time: float,
+        step: int,
+        positions: np.ndarray,
+        velocities: np.ndarray,
+        densities: np.ndarray,
+        pressures: np.ndarray,
+        concentrations: Optional[np.ndarray] = None,
+        metrics: Optional[dict] = None,
+        gradients: Optional[np.ndarray] = None
+    ):
+        """
+        Update current simulation state with Minecraft-specific data.
+
+        Args:
+            time: Simulation time
+            step: Current timestep
+            positions: Particle positions [N, 3]
+            velocities: Particle velocities [N, 3]
+            densities: Particle densities [N]
+            pressures: Particle pressures [N]
+            concentrations: Particle concentrations [N] (optional)
+            metrics: Additional metrics dictionary (optional)
+            gradients: Gradient vectors for particles [N, 3] (optional)
+        """
+        super().update_simulation_data(
+            time=time,
+            step=step,
+            positions=positions,
+            velocities=velocities,
+            densities=densities,
+            pressures=pressures,
+            concentrations=concentrations,
+            metrics=metrics
+        )
+
+        # Store Minecraft-specific data
+        self.current_data['gradients'] = gradients
+
+    def _compute_volume_integrals(self) -> dict:
+        """
+        Compute volume integrals for preset regions.
+
+        Returns:
+            dict: Volume integral results for each preset region
+        """
+        if self.current_data['concentrations'] is None:
+            return {}
+
+        try:
+            concentrations = self.current_data['concentrations']
+            positions = self.current_data['positions']
+            voxel_volume = self.voxel_size ** 3
+
+            integrals = {}
+
+            for region_key, region_info in self.preset_regions.items():
+                bounds = region_info['bounds']
+                min_bound = np.array(bounds[0])
+                max_bound = np.array(bounds[1])
+
+                # Find particles within bounds
+                within_bounds = np.all(
+                    (positions >= min_bound) & (positions <= max_bound),
+                    axis=1
+                )
+
+                if np.any(within_bounds):
+                    # Compute Riemann sum: ∭ C dV ≈ Σ C_i * ΔV
+                    integral = np.sum(concentrations[within_bounds]) * voxel_volume
+                    particle_count = np.sum(within_bounds)
+                else:
+                    integral = 0.0
+                    particle_count = 0
+
+                # Ensure values are finite
+                if integral != integral or integral == float('inf') or integral == float('-inf'):
+                    integral = 0.0
+
+                integrals[region_key] = {
+                    'value': float(integral),
+                    'particle_count': int(particle_count),
+                    'bounds': bounds,
+                    'name': region_info['name']
+                }
+
+            return integrals
+        except Exception as e:
+            print(f"[ERROR] Failed to compute volume integrals: {e}")
+            # Return empty dict on error
+            return {}
+
+    def _encode_json(self, indices: np.ndarray) -> str:
+        """
+        Encode data as Minecraft-optimized JSON message.
+
+        Extends base JSON with:
+        - Minecraft-specific data fields
+        - Volume integral calculations
+        - Camera position suggestions
+        - Gradient data (if available)
+
+        Args:
+            indices: Particle indices to include
+
+        Returns:
+            JSON string
+        """
+        try:
+            data = {
+                'type': 'simulation_data',
+                'time': float(self.current_data['time']),
+                'step': int(self.current_data['step']),
+                'particle_count': len(indices),
+                'positions': self.current_data['positions'][indices].tolist(),
+                'velocities': self.current_data['velocities'][indices].tolist(),
+                'densities': self.current_data['densities'][indices].tolist(),
+                'pressures': self.current_data['pressures'][indices].tolist(),
+            }
+
+            # Add concentration if available
+            if self.current_data['concentrations'] is not None:
+                data['concentrations'] = self.current_data['concentrations'][indices].tolist()
+
+            # Add gradients if available (for vector field visualization)
+            if self.current_data.get('gradients') is not None:
+                data['gradients'] = self.current_data['gradients'][indices].tolist()
+
+            # Add metrics with safety checks
+            if self.current_data['metrics']:
+                # Ensure all metric values are JSON-serializable (no NaN/Inf)
+                safe_metrics = {}
+                for key, value in self.current_data['metrics'].items():
+                    if isinstance(value, list):
+                        safe_metrics[key] = [0.0 if (v != v or v == float('inf') or v == float('-inf')) else v for v in value]
+                    else:
+                        val = float(value) if not isinstance(value, str) else value
+                        safe_metrics[key] = 0.0 if (val != val or val == float('inf') or val == float('-inf')) else val
+                data['metrics'] = safe_metrics
+
+            # Add Minecraft-specific data
+            minecraft_data = {
+                'preset_regions': self._compute_volume_integrals(),
+                'camera_presets': self.camera_presets,
+                'voxel_resolution': self.voxel_resolution,
+                'voxel_size': float(self.voxel_size),
+                'coordinate_scale': 20  # 20 Minecraft blocks per 1m simulation unit
+            }
+            data['minecraft_data'] = minecraft_data
+
+            json_str = json.dumps(data)
+
+            # Compress if enabled
+            if self.compression_enabled:
+                compressed = zlib.compress(json_str.encode('utf-8'))
+                # Prefix with 'C' to indicate compression
+                return 'C' + compressed.hex()
+            else:
+                return json_str
+        except Exception as e:
+            print(f"[ERROR] Failed to encode JSON: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return minimal valid JSON on error
+            return json.dumps({'type': 'error', 'message': str(e)})
