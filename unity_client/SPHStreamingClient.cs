@@ -59,6 +59,13 @@ public class SPHStreamingClient : MonoBehaviour
     private Vector3[] positions;
     private Vector3[] velocities;
     private float[] concentrations;
+    private Vector3[] gradientVectors;
+
+    // Public accessors for Phase 4 scripts
+    public Vector3[] GradientVectors => gradientVectors;
+    public Vector3[] Positions => positions;
+    public float[] Concentrations => concentrations;
+    public int ParticleCount => particleObjects.Count;
 
     // Metrics
     private SimulationMetrics currentMetrics = new SimulationMetrics();
@@ -80,6 +87,7 @@ public class SPHStreamingClient : MonoBehaviour
         public float[] densities;
         public float[] pressures;
         public float[] concentrations;
+        public float[][] gradients;
         public MetricsData metrics;
     }
 
@@ -203,6 +211,12 @@ public class SPHStreamingClient : MonoBehaviour
             InitializeParticles(particleCount);
         }
 
+        // Cache arrays for Phase 4 script access
+        if (positions == null || positions.Length != particleCount)
+            positions = new Vector3[particleCount];
+        if (concentrations == null || concentrations.Length != particleCount)
+            concentrations = new float[particleCount];
+
         // Update particle positions and colors
         for (int i = 0; i < particleCount && i < particleObjects.Count; i++)
         {
@@ -215,12 +229,14 @@ public class SPHStreamingClient : MonoBehaviour
                     data.positions[i][2]
                 );
                 particleObjects[i].transform.position = pos;
+                positions[i] = pos;
             }
 
             // Update color based on concentration
             if (data.concentrations != null && i < data.concentrations.Length)
             {
                 float concentration = data.concentrations[i];
+                concentrations[i] = concentration;
                 Color particleColor = GetConcentrationColor(concentration);
 
                 Renderer renderer = particleObjects[i].GetComponent<Renderer>();
@@ -228,6 +244,19 @@ public class SPHStreamingClient : MonoBehaviour
                 {
                     renderer.material.color = particleColor;
                 }
+            }
+
+            // Store gradient data
+            if (data.gradients != null && i < data.gradients.Length && data.gradients[i] != null && data.gradients[i].Length == 3)
+            {
+                if (gradientVectors == null || gradientVectors.Length != particleCount)
+                    gradientVectors = new Vector3[particleCount];
+
+                gradientVectors[i] = new Vector3(
+                    data.gradients[i][0],
+                    data.gradients[i][1],
+                    data.gradients[i][2]
+                );
             }
         }
     }

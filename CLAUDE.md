@@ -66,59 +66,47 @@ python test_streaming_e2e.py
 
 ## Current Project Status
 
-### ✓ COMPLETE
+### ✓ COMPLETE — Phases 0-3 (Python Backend)
+- **Phase 0 (WebSocket Fix):** Critical broadcasting bug fixed (commit 205df3b)
 - **Phase 1 (Core SPH):** Full simulation with GGUI visualization
 - **Phase 2 (Waste Tracking):** Concentration advection-diffusion solver with metrics
-- **Phase 3 Backend (WebSocket):** Server infrastructure fully functional
-  - Fixed critical broadcasting bug (commit 205df3b)
-  - All clients now receive 30 FPS frame updates
-  - JSON and binary encoding with compression support
-  - Multi-client support with proper async handling
+- **Phase 3 (Unity Streaming):** WebSocket server at `ws://localhost:8765`, JSON/binary encoding, compression, multi-client support, 30 FPS
+- **Python verified operational:** All 4 tests pass (`python test_all_phases.py`)
 
-### ✓ READY FOR NEXT STEPS
-- **Unity Client (85% complete):** SPHStreamingClient.cs production-ready
-  - WebSocket connection management
-  - Particle rendering with GPU instancing
-  - Color-coded concentration visualization (blue→yellow→red)
-  - Real-time metrics display
-  - Existing implementation in `unity_client/`
+### ✓ CODE COMPLETE — Phase 4 (Camera & UI Polish)
+All Phase 4 scripts written and committed. **Awaiting Unity testing.**
 
-### → PHASE 1 (NEXT): Unity Project Setup
-**Objective:** Create Unity 2021.3 project and verify streaming pipeline
-**Time:** 2-3 hours
-**Guide:** See [PHASE_1_SETUP.md](PHASE_1_SETUP.md)
+**New files created:**
+- `unity_client/Assets/Scripts/CameraPresetManager.cs` — 4 camera presets (Overview, Close-Up, Side, Top-Down) cycled via TAB key
+- `unity_client/Assets/Scripts/PresentationController.cs` — SPACE (pause/resume with yellow "⏸ PAUSED" indicator), H (UI toggle), R (reset)
+- `unity_client/Assets/Scripts/PresentationUIManager.cs` — Adaptive font scaling (22-48px based on screen height / 1080 ratio), percentage-based panel layout
 
-### → PHASE 2 (AFTER Phase 1): Gradient Arrow Visualization
-**Objective:** Add ∇C (gradient of concentration) vector field visualization
-**Time:** 6-8 hours
-**Key Features:**
-- 5×5×5 grid of gradient arrows
-- Arrow length scaled by |∇C|
-- Color coding by magnitude (green→yellow→red)
-- Toggle with `G` key
+**Files modified:**
+- `unity_client/SPHStreamingClient.cs` — Conditional compilation (`#if NATIVEWEBSOCKET_INSTALLED`), adaptive UI via PresentationUIManager, gradients field + position/concentration caching
+- `unity_client/Assets/Scripts/GradientVisualizer.cs` — Fixed Vector3.Lerp type mismatch (now component-wise Mathf.Lerp), adaptive UI layout
+- `unity_client/Assets/Scripts/VolumeIntegralCalculator.cs` — Adaptive UI layout via PresentationUIManager
+- `unity_client/Assets/Scripts/SPHSetup.cs` — Auto-wires Phase 4 components via ConfigurePhase4Components()
 
-### → PHASE 3 (AFTER Phase 2): Volume Integral Visualizer
-**Objective:** Add ∭ C dV (triple integral) animated Riemann sum
-**Time:** 4-6 hours
-**Key Features:**
-- Translucent bounding boxes for preset regions
-- Sequential particle highlighting
-- Running total display
-- Three preset regions (top, bottom, center)
+**Keyboard shortcuts (full set):**
+| Key | Action |
+|-----|--------|
+| TAB | Cycle camera presets (Overview → Close-Up → Side → Top-Down) |
+| SPACE | Pause/resume simulation |
+| H | Toggle UI panels visibility |
+| R | Reset camera to default view |
+| G | Toggle gradient arrow visualization |
+| 1/2/3 | Volume integral preset regions (top/bottom/center) |
 
-### → PHASE 4 (AFTER Phase 3): Camera & UI Polish
-**Time:** 3-4 hours
-**Key Features:**
-- Cinemachine camera presets
-- Keyboard shortcuts (G, 1-3, SPACE, TAB, H, R)
-- Large-format presentation UI
-- Professional visual polish
+**Known issue:** NativeWebSocket package NOT yet installed in Unity. Must install via Package Manager → + button → git URL: `https://github.com/endel/NativeWebSocket.git#upm`. Code compiles without it due to conditional compilation directives, but WebSocket streaming won't function until installed.
 
-### → PHASE 5 (FINAL): Testing & Demo Rehearsal
-**Time:** 2-3 hours
-**Deliverables:** Ready-to-present Calculus 3 demonstration
-
-**Total Timeline:** 20-26 hours for complete MVP
+### → NEXT: Phase 5 (Testing & Demo Rehearsal)
+**Objective:** Verify all features end-to-end, rehearse Calculus 3 classroom demo
+**Prerequisites:**
+1. Install NativeWebSocket package in Unity
+2. Verify zero compilation errors
+3. Test Python→Unity streaming pipeline
+4. Test all keyboard shortcuts
+5. Verify UI readability at projector resolution (1080p-4K)
 
 ## Quick Start - Testing WebSocket
 
@@ -145,3 +133,18 @@ python test_websocket_broadcast.py
 - Monitor client connections: Lines 218-220 in websocket_server.py
 - Check particle data updates: Lines 131-140 in unity_streaming_main.py
 - Verify broadcast rate: target_time / frames_received
+
+**Resolved Bugs (Phase 4 development):**
+- `physics/__init__.py` was deleted from git — restored (required for Python module imports)
+- `SPHStreamingClient.cs` missing `gradients` field in SimulationData — added (Python was sending gradient data but Unity ignored it)
+- `GradientVisualizer.cs` line 109: `Vector3.Lerp` called with Vector3 as 3rd arg (requires float) — fixed with component-wise `Mathf.Lerp`
+- Unity manifest.json: Removed invalid module references (`com.unity.modules.core`, `.lighting`, `.spriteanimation`, `.sprites`), restored `com.unity.modules.imgui` (required for OnGUI)
+- NativeWebSocket not found: Wrapped all WebSocket code in `#if NATIVEWEBSOCKET_INSTALLED` conditional compilation
+
+## Session Continuation Context
+
+This project was developed across multiple Claude Code sessions. Key context:
+- **User environment:** Python operational, Unity available but with limited testing capability
+- **Purpose:** Calculus 3 classroom demonstration (SPH fluid sim with waste concentration tracking)
+- **Current state:** Phase 4 code complete, needs NativeWebSocket install + Unity testing before Phase 5
+- **User preference:** Pragmatic approach — conditional compilation to unblock development when dependencies unavailable

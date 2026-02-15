@@ -46,6 +46,7 @@ class SimulationDataServer:
             'densities': None,
             'pressures': None,
             'concentrations': None,
+            'gradients': None,  # NEW - Phase 2: Concentration gradients
             'metrics': {}
         }
 
@@ -146,6 +147,7 @@ class SimulationDataServer:
         densities: np.ndarray,
         pressures: np.ndarray,
         concentrations: Optional[np.ndarray] = None,
+        gradients: Optional[np.ndarray] = None,  # NEW - Phase 2: Concentration gradients
         metrics: Optional[dict] = None
     ):
         """
@@ -159,6 +161,7 @@ class SimulationDataServer:
             densities: Particle densities [N]
             pressures: Particle pressures [N]
             concentrations: Particle concentrations [N] (optional)
+            gradients: Concentration gradients [N, 3] (optional, NEW - Phase 2)
             metrics: Additional metrics dictionary (optional)
         """
         self.current_data = {
@@ -169,6 +172,7 @@ class SimulationDataServer:
             'densities': densities,
             'pressures': pressures,
             'concentrations': concentrations,
+            'gradients': gradients,  # NEW - Phase 2: Add gradient data
             'metrics': metrics or {}
         }
 
@@ -244,6 +248,10 @@ class SimulationDataServer:
         # Add concentration if available
         if self.current_data['concentrations'] is not None:
             data['concentrations'] = self.current_data['concentrations'][indices].tolist()
+
+        # Add gradients if available (NEW - Phase 2)
+        if self.current_data['gradients'] is not None:
+            data['gradients'] = self.current_data['gradients'][indices].tolist()
 
         # Add metrics
         if self.current_data['metrics']:

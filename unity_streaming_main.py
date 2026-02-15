@@ -109,6 +109,9 @@ class StreamingSimulation:
             pressures = self.solver.pressures.to_numpy()
             concentrations = self.concentration_tracker.concentration.to_numpy()
 
+            # Export gradient data (NEW - Phase 2)
+            gradients = self.concentration_tracker.concentration_gradient.to_numpy()
+
             # Compute metrics
             stats = self.metrics.compute_statistics(
                 self.concentration_tracker.concentration,
@@ -136,6 +139,7 @@ class StreamingSimulation:
                 densities=densities,
                 pressures=pressures,
                 concentrations=concentrations,
+                gradients=gradients,  # NEW - Phase 2: Add gradient data
                 metrics=metrics_dict
             )
 
